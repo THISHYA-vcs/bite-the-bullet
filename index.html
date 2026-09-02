@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Byte the Bullet</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --paper:#EFF1EC; --ink:#1B211D; --ink-soft:#5B655D; --line:#D3D8CF; --card:#FFFFFF;
+    --chili:#C0432D; --chili-soft:#EFD2CB;
+    --salt:#4F6470; --salt-soft:#DCE4E6;
+    --pepper:#2B2A28; --pepper-soft:#DAD6D1;
+    --sour:#7C9143; --sour-soft:#DEE6CC;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{ margin:0; background:var(--paper); color:var(--ink); font-family:'Inter',sans-serif;
+    min-height:100vh; display:flex; align-items:stretch; justify-content:center; }
+  #app{ width:100%; max-width:720px; padding:20px 18px 40px; display:flex; flex-direction:column; gap:16px; }
+  h1,h2,h3{ font-family:'Space Grotesk',sans-serif; margin:0; letter-spacing:-0.01em; }
+  .brand{ display:flex; align-items:baseline; gap:10px; margin-bottom:4px; }
+  .brand .bullet{ width:10px;height:10px;border-radius:50%; background:var(--chili); display:inline-block; }
+  .brand h1{ font-size:22px; }
+  .brand span.sub{ color:var(--ink-soft); font-size:13px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:22px; }
+  .center{ text-align:center; }
+  .stack{ display:flex; flex-direction:column; gap:12px; }
+  .row{ display:flex; gap:10px; }
+  .row > *{ flex:1; }
+  button{ font-family:'Inter',sans-serif; font-weight:600; font-size:15px; border:none; border-radius:10px;
+    padding:14px 18px; cursor:pointer; background:var(--ink); color:var(--paper); }
+  button:active{ transform:scale(0.97); }
+  button.primary{ background:var(--chili); color:#fff; }
+  button.ghost{ background:transparent; color:var(--ink); border:1px solid var(--line); }
+  button:disabled{ opacity:.4; cursor:not-allowed; }
+  input[type=text]{ font-family:'Inter',sans-serif; font-size:16px; padding:14px 16px; border-radius:10px;
+    border:1px solid var(--line); background:#fff; width:100%; color:var(--ink); }
+  input[type=text]:focus{ outline:2px solid var(--chili); outline-offset:1px; }
+  .code-display{ font-family:'Space Grotesk',sans-serif; font-size:30px; font-weight:700; letter-spacing:0.06em;
+    color:var(--chili); margin:6px 0; word-break:break-all; }
+  .muted{ color:var(--ink-soft); font-size:14px; }
+  .roster-list{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:14px; }
+  .chip{ background:var(--paper); border:1px solid var(--line); border-radius:20px; padding:8px 14px; font-size:14px; font-weight:600; }
+  .round-banner{ display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-radius:10px;
+    font-family:'Space Grotesk',sans-serif; font-weight:700; color:#fff; font-size:14px; letter-spacing:0.04em; }
+  .timerbar-track{ height:8px; border-radius:6px; background:var(--line); overflow:hidden; margin:10px 0 4px; }
+  .timerbar-fill{ height:100%; background:var(--chili); width:100%; transition:width 0.2s linear; }
+  .qtext{ font-family:'Space Grotesk',sans-serif; font-size:22px; font-weight:700; margin:14px 0 18px; line-height:1.3; }
+  .qicon{ font-size:34px; }
+  .opt{ display:block; width:100%; text-align:left; background:#fff; border:1.5px solid var(--line); border-radius:10px;
+    padding:14px 16px; font-size:15px; font-weight:600; color:var(--ink); margin-bottom:10px; cursor:pointer; }
+  .opt.selected{ border-color:var(--chili); background:var(--chili-soft); }
+  .opt.correct{ border-color:var(--sour); background:var(--sour-soft); }
+  .opt.wrong{ border-color:var(--chili); background:var(--chili-soft); opacity:.7; }
+  .opt.dim{ opacity:.5; }
+  .leader-row{ display:flex; align-items:center; gap:10px; margin:14px 0; }
+  .leader-name{ width:96px; flex-shrink:0; font-weight:700; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .leader-track{ flex:1; background:var(--paper); border-radius:8px; height:34px; position:relative; overflow:visible; }
+  .leader-bar{ height:100%; border-radius:8px; background:var(--chili); width:0%; transition:width 1.1s cubic-bezier(.2,.9,.3,1);
+    display:flex; align-items:center; justify-content:flex-end; padding-right:8px; position:relative; }
+  .leader-score{ color:#fff; font-weight:700; font-size:12px; font-family:'Space Grotesk',sans-serif; }
+  .leader-toy{ position:absolute; right:-6px; top:-26px; font-size:24px; transform:scale(0);
+    animation:popIn .5s cubic-bezier(.3,1.6,.4,1) forwards; animation-delay:0.9s; }
+  @keyframes popIn{ to{ transform:scale(1); } }
+  .waiting-pulse{ width:14px;height:14px;border-radius:50%; background:var(--chili); margin:0 auto; animation:pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{ opacity:.3; transform:scale(0.8);} 50%{ opacity:1; transform:scale(1.15);} }
+  .feedback-banner{ text-align:center; padding:16px; border-radius:10px; font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:18px; }
+  .feedback-banner.good{ background:var(--sour-soft); color:#3d4a20; }
+  .feedback-banner.bad{ background:var(--chili-soft); color:#7a2416; }
+  .final-wrap{ position:relative; padding-top:10px; }
+  .podium-row{ display:flex; align-items:flex-end; justify-content:center; gap:14px; margin:18px 0 24px; }
+  .podium{ background:var(--card); border:1px solid var(--line); border-radius:12px 12px 0 0; text-align:center; padding:14px 10px 10px; width:100px; }
+  .podium .medal{ font-size:30px; display:block; margin-bottom:4px; }
+  .podium .pname{ font-weight:700; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .podium .pscore{ color:var(--ink-soft); font-size:11px; }
+  .podium.p1{ height:170px; order:2; background:linear-gradient(180deg,#fff, var(--chili-soft)); }
+  .podium.p2{ height:140px; order:1; }
+  .podium.p3{ height:120px; order:3; }
+  .rocket-emoji{ position:absolute; font-size:30px; animation:rocketFly 2.4s ease-in forwards; }
+  @keyframes rocketFly{ 0%{ transform:translateY(0) rotate(-45deg); opacity:1; } 80%{ opacity:1; }
+    100%{ transform:translateY(-360px) translateX(60px) rotate(-45deg); opacity:0; } }
+  .icecream-emoji{ position:absolute; font-size:26px; animation:iceBounce 1.6s ease-in-out infinite; }
+  @keyframes iceBounce{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-14px);} }
+  .confetti{ position:absolute; top:0; width:8px; height:14px; opacity:0.95; animation-name:confettiFall;
+    animation-timing-function:ease-in; animation-fill-mode:forwards; }
+  @keyframes confettiFall{ 0%{ transform:translateY(-10px) rotate(0deg); opacity:1;} 100%{ transform:translateY(220px) rotate(540deg); opacity:0;} }
+  .footer-note{ text-align:center; font-size:12px; color:var(--ink-soft); margin-top:6px; }
+  .small-code{ font-family:'Space Grotesk',sans-serif; font-weight:700; letter-spacing:0.08em; color:var(--chili); }
+  #qrWrap{ display:flex; justify-content:center; margin:14px 0; padding:14px; background:#fff; border-radius:12px; border:1px solid var(--line); }
+  .errbox{ color:var(--chili); font-size:13px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+(function(){
+  const ROUNDS = [
+    { name:'SALT', tagline:'The basics — light & easy warm-up', color:'var(--salt)', questions:[
+      {icon:'🧠', text:'Who is known as the Father of AI?', options:['Alan Turing','John McCarthy','Charles Babbage','Tim Berners-Lee'], correct:1},
+      {icon:'🌐', text:'HTTP stands for?', options:['High Transfer Text Protocol','HyperText Transmission Program','HyperText Transfer Protocol','Home Tool Transfer Process'], correct:2},
+      {icon:'🐞', text:'What do you call a computer program that finds and fixes errors?', options:['Compiler','Debugger','Browser','Firewall'], correct:1},
+      {icon:'♾️', text:'Which company owns Instagram and WhatsApp?', options:['Google','Microsoft','Meta','Amazon'], correct:2},
+      {icon:'🐍', text:'Which of these is a programming language?', options:['HTML','Python','Photoshop','Excel'], correct:1},
+    ]},
+    { name:'PEPPER', tagline:'Turn up the heat — tougher tech', color:'var(--pepper)', questions:[
+      {icon:'🦠', text:'What do you call malicious software designed to harm a computer?', options:['Firmware','Malware','Freeware','Shareware'], correct:1},
+      {icon:'🤖', text:'Which company developed the Android operating system?', options:['Apple','Samsung','Google','Microsoft'], correct:2},
+      {icon:'📶', text:'What does Wi-Fi commonly stand for?', options:['Wide Fidelity','Wireless Fidelity','Wired Frequency','Web Fidelity'], correct:1},
+      {icon:'📸', text:'Which key do you press to take a screenshot on most laptops?', options:['Ctrl+S','PrtScn','F5','Esc'], correct:1},
+      {icon:'🎬', text:"What's the common file format for saving a video file?", options:['MP3','MP4','PNG','DOCX'], correct:1},
+    ]},
+    { name:'SOUR', tagline:'Sharp thinking — aptitude & logic twist', color:'var(--sour)', questions:[
+      {icon:'🍎', text:"Which tech company's logo is a bitten fruit?", options:['Samsung','Apple','Nokia','Sony'], correct:1},
+      {icon:'🔤', text:'If COMPUTER is written as RETUPMOC, how is MOBILE written?', options:['MOBIEL','ELIBOM','OBMILE','EMOBIL'], correct:1},
+      {icon:'🔢', text:'Missing number: 7, 14, 28, 56, ?', options:['84','98','112','120'], correct:2},
+      {icon:'🔋', text:'All smartphones have batteries. This device has no battery. Can it be a smartphone?', options:['Yes','No','Maybe','Not enough info'], correct:1},
+    ]},
+  ];
+  const FLAT = [];
+  ROUNDS.forEach((r,ri)=> r.questions.forEach((q,qi)=> FLAT.push({...q, round:ri, qIndex:qi, roundName:r.name, roundColor:r.color, isLastOverall:false})));
+  FLAT[FLAT.length-1].isLastOverall = true;
+
+  const TOYS = ['🐯','🦊','🐼','🐸','🐙','🦉','🐳','🦖','🐨','🐵','🦁','🐺'];
+  function toyFor(name){ let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))>>>0; return TOYS[h % TOYS.length]; }
+  const QT = 10;
+
+  // ---------- kvdb.io backend (works from any static host, incl. GitHub Pages) ----------
+  const KV_BASE = 'https://kvdb.io';
+
+  async function createBucket(){
+    try{
+      const res = await fetch(KV_BASE + '/', { method:'POST' });
+      if(!res.ok) return null;
+      const id = (await res.text()).trim();
+      return id.length > 0 && id.length < 60 ? id : null;
+    }catch(e){ return null; }
+  }
+  async function kvSet(bucket, key, value){
+    try{
+      await fetch(`${KV_BASE}/${bucket}/${encodeURIComponent(key)}`, { method:'PUT', body: JSON.stringify(value) });
+      return true;
+    }catch(e){ return false; }
+  }
+  async function kvGet(bucket, key){
+    try{
+      const res = await fetch(`${KV_BASE}/${bucket}/${encodeURIComponent(key)}`, { cache:'no-store' });
+      if(!res.ok) return null;
+      const text = await res.text();
+      if(!text) return null;
+      try{ return JSON.parse(text); }catch(e){ return null; }
+    }catch(e){ return null; }
+  }
+  async function kvList(bucket, prefix){
+    try{
+      const res = await fetch(`${KV_BASE}/${bucket}/?prefix=${encodeURIComponent(prefix)}`);
+      if(!res.ok) return [];
+      const text = await res.text();
+      if(!text) return [];
+      try{
+        const arr = JSON.parse(text);
+        if(Array.isArray(arr)) return arr;
+      }catch(e){}
+      return text.split('\n').map(s=>s.trim()).filter(Boolean);
+    }catch(e){ return []; }
+  }
+  async function bucketExists(bucket){
+    // treat any non-network-error response (even 404 for a missing key) as "bucket reachable"
+    try{
+      await fetch(`${KV_BASE}/${bucket}/__probe__`, { cache:'no-store' });
+      return true;
+    }catch(e){ return false; }
+  }
+
+  function metaKey(){ return 'meta'; }
+  function rosterKey(){ return 'roster'; }
+  function teamKey(name){ return `team:${name}`; }
+  function ansKey(pos,name){ return `ans:${pos}:${name}`; }
+  function ansPrefix(pos){ return `ans:${pos}:`; }
+
+  async function getAllTeamsWithScores(bucket){
+    const roster = (await kvGet(bucket, rosterKey())) || [];
+    const out = [];
+    for(const name of roster){
+      const t = await kvGet(bucket, teamKey(name));
+      out.push({ name, score: t ? t.score : 0 });
+    }
+    return out;
+  }
+  async function getAnswersFor(bucket,pos){
+    const keys = await kvList(bucket, ansPrefix(pos));
+    const out = [];
+    for(const k of keys){
+      const cleanKey = k.includes('/') ? k.split('/').pop() : k;
+      const r = await kvGet(bucket, cleanKey.startsWith('ans:') ? cleanKey : `ans:${pos}:${cleanKey.split(':').pop()}`);
+      if(r) out.push(r);
+    }
+    return out;
+  }
+
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function joinLink(bucket){
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.searchParams.set('b', bucket);
+    return url.toString();
+  }
+
+  const app = document.getElementById('app');
+  let pollTimer = null;
+  let ctx = { bucket:null, teamName:null, lastPos:-1, hasAnswered:false, currentPhase:null };
+
+  function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+  function startPoll(fn, ms){ stopPoll(); fn(); pollTimer = setInterval(fn, ms || 1200); }
+  function render(html){ app.innerHTML = html; }
+  function brand(){ return `<div class="brand"><span class="bullet"></span><h1>Byte the Bullet</h1><span class="sub">technical & logical thinking quiz</span></div>`; }
+
+  // ---------- LANDING ----------
+  function renderLanding(){
+    stopPoll();
+    render(`
+      ${brand()}
+      <div class="card stack">
+        <h2>Join the live event</h2>
+        <p class="muted">Host it on the big screen, or join as a team from your phone.</p>
+        <div class="row">
+          <button class="primary" id="btnHost">Host a Game</button>
+          <button class="ghost" id="btnJoin">Join a Game</button>
+        </div>
+      </div>
+      <p class="footer-note">3 rounds — SALT, PEPPER, SOUR · 10 seconds per question</p>
+    `);
+    document.getElementById('btnHost').onclick = ()=> renderHostSetup();
+    document.getElementById('btnJoin').onclick = ()=> renderJoinCode();
+  }
+
+  // ---------- HOST ----------
+  async function renderHostSetup(){
+    render(`${brand()}<div class="card center"><p class="muted">Setting up your room…</p><div class="waiting-pulse" style="margin-top:14px;"></div></div>`);
+    const bucket = await createBucket();
+    if(!bucket){
+      render(`${brand()}<div class="card center">
+        <p class="errbox">Couldn't reach the game server just now. Check your internet connection and try again.</p>
+        <button class="primary" id="retryBtn" style="margin-top:12px;">Try Again</button>
+      </div>`);
+      document.getElementById('retryBtn').onclick = renderHostSetup;
+      return;
+    }
+    await kvSet(bucket, metaKey(), { phase:'lobby', pos:0, startedAt:null });
+    await kvSet(bucket, rosterKey(), []);
+    ctx.bucket = bucket;
+    renderHostLobby();
+  }
+
+  function renderHostLobby(){
+    const link = joinLink(ctx.bucket);
+    render(`
+      ${brand()}
+      <div class="card center">
+        <p class="muted">Students scan this to join instantly</p>
+        <div id="qrWrap"></div>
+        <p class="muted">Or open this link:</p>
+        <div class="code-display" style="font-size:14px;">${escapeHtml(link)}</div>
+        <p class="muted">Waiting for teams to join…</p>
+        <div id="roster" class="roster-list"></div>
+        <div style="margin-top:20px;"><button class="primary" id="btnStart" disabled>Start Game</button></div>
+      </div>
+      <p class="footer-note">Keep this screen up on the projector or shared display</p>
+    `);
+    new QRCode(document.getElementById('qrWrap'), { text: link, width:200, height:200, colorDark:'#1B211D', colorLight:'#ffffff' });
+    startPoll(async ()=>{
+      const roster = (await kvGet(ctx.bucket, rosterKey())) || [];
+      const rEl = document.getElementById('roster');
+      if(rEl) rEl.innerHTML = roster.length ? roster.map(n=>`<div class="chip">${escapeHtml(n)}</div>`).join('') : '<span class="muted">No teams yet</span>';
+      const btn = document.getElementById('btnStart');
+      if(btn) btn.disabled = roster.length===0;
+    }, 1200);
+    setTimeout(()=>{
+      const btn = document.getElementById('btnStart');
+      if(btn) btn.onclick = async ()=>{
+        await kvSet(ctx.bucket, metaKey(), { phase:'question', pos:0, startedAt: Date.now() });
+        renderHostQuestion();
+      };
+    }, 50);
+  }
+
+  function renderHostQuestion(){
+    stopPoll();
+    let revealed = false;
+    async function tick(){
+      const meta = await kvGet(ctx.bucket, metaKey());
+      if(!meta) return;
+      const pos = meta.pos, startedAt = meta.startedAt;
+      const q = FLAT[pos];
+      const elapsed = (Date.now() - startedAt)/1000;
+      const remaining = Math.max(0, QT - elapsed);
+      const pct = Math.max(0, (remaining/QT)*100);
+      const answers = await getAnswersFor(ctx.bucket, pos);
+      const roster = (await kvGet(ctx.bucket, rosterKey())) || [];
+
+      render(`
+        ${brand()}
+        <div class="round-banner" style="background:${q.roundColor}"><span>ROUND ${q.round+1} · ${q.roundName}</span><span>Q${q.qIndex+1} / ${ROUNDS[q.round].questions.length}</span></div>
+        <div class="card">
+          <div class="timerbar-track"><div class="timerbar-fill" style="width:${pct}%"></div></div>
+          <div class="qicon">${q.icon}</div>
+          <div class="qtext">${q.text}</div>
+          ${q.options.map(o=>`<div class="opt dim">${o}</div>`).join('')}
+          <p class="muted center" style="margin-top:10px;">${answers.length} / ${roster.length} teams answered · ${remaining.toFixed(0)}s left</p>
+        </div>
+      `);
+      if(remaining<=0 && !revealed){
+        revealed = true;
+        await kvSet(ctx.bucket, metaKey(), { phase:'reveal', pos, startedAt });
+        stopPoll();
+        renderHostReveal(pos);
+      }
+    }
+    startPoll(tick, 600);
+  }
+
+  async function renderHostReveal(pos){
+    stopPoll();
+    const q = FLAT[pos];
+    const answers = await getAnswersFor(ctx.bucket, pos);
+    const correctTeams = answers.filter(a=>a.correct).sort((a,b)=>a.ts-b.ts).map(a=>a.name);
+    render(`
+      ${brand()}
+      <div class="round-banner" style="background:${q.roundColor}"><span>ROUND ${q.round+1} · ${q.roundName}</span><span>Answer revealed</span></div>
+      <div class="card">
+        <div class="qicon">${q.icon}</div>
+        <div class="qtext">${q.text}</div>
+        ${q.options.map((o,i)=>`<div class="opt ${i===q.correct?'correct':'wrong'}">${o}${i===q.correct?' ✓':''}</div>`).join('')}
+        <p class="muted center" style="margin-top:10px;">${correctTeams.length ? correctTeams.length+' team(s) got it right' : 'No one got it this time'}</p>
+        <div class="row" style="margin-top:14px;"><button class="primary" id="btnLeader">Show Leaderboard</button></div>
+      </div>
+    `);
+    document.getElementById('btnLeader').onclick = async ()=>{
+      await kvSet(ctx.bucket, metaKey(), { phase:'scores', pos, startedAt:null });
+      renderHostScores(pos);
+    };
+  }
+
+  async function renderHostScores(pos){
+    stopPoll();
+    const q = FLAT[pos];
+    const answers = await getAnswersFor(ctx.bucket, pos);
+    const scored = await getAllTeamsWithScores(ctx.bucket);
+    const correctOrder = answers.filter(a=>a.correct).sort((a,b)=>a.ts-b.ts).map(a=>a.name);
+    const rest = scored.map(t=>t.name).filter(n=>!correctOrder.includes(n))
+      .sort((a,b)=> scored.find(t=>t.name===b).score - scored.find(t=>t.name===a).score);
+    const order = [...correctOrder, ...rest];
+    const maxScore = Math.max(1, ...scored.map(t=>t.score));
+    const isLast = q.isLastOverall;
+
+    render(`
+      ${brand()}
+      <div class="round-banner" style="background:${q.roundColor}"><span>Live Standings</span><span>ROUND ${q.round+1} · ${q.roundName}</span></div>
+      <div class="card">
+        ${order.map(name=>{
+          const t = scored.find(x=>x.name===name);
+          const pct = Math.round((t.score/maxScore)*100);
+          return `<div class="leader-row">
+            <div class="leader-name">${escapeHtml(name)}</div>
+            <div class="leader-track"><div class="leader-bar" style="width:${pct}%"><span class="leader-score">${t.score}</span><span class="leader-toy">${toyFor(name)}</span></div></div>
+          </div>`;
+        }).join('')}
+        <div class="row" style="margin-top:16px;"><button class="primary" id="btnNext">${isLast?'Show Final Results':'Next Question'}</button></div>
+      </div>
+    `);
+    document.getElementById('btnNext').onclick = async ()=>{
+      if(isLast){
+        await kvSet(ctx.bucket, metaKey(), { phase:'final', pos, startedAt:null });
+        renderFinalScreen(ctx.bucket);
+      } else {
+        const nextPos = pos+1;
+        await kvSet(ctx.bucket, metaKey(), { phase:'question', pos: nextPos, startedAt: Date.now() });
+        renderHostQuestion();
+      }
+    };
+  }
+
+  async function renderFinalScreen(bucket){
+    stopPoll();
+    const scored = await getAllTeamsWithScores(bucket);
+    scored.sort((a,b)=>b.score-a.score);
+    const [first, second, third] = [scored[0], scored[1], scored[2]];
+    render(`
+      ${brand()}
+      <div class="card center final-wrap" id="finalCard">
+        <h2>🏁 Final Standings</h2>
+        <div class="podium-row">
+          ${second?`<div class="podium p2"><span class="medal">🥈</span><div class="pname">${escapeHtml(second.name)}</div><div class="pscore">${second.score} pts</div></div>`:''}
+          ${first?`<div class="podium p1"><span class="medal">🥇</span><div class="pname">${escapeHtml(first.name)}</div><div class="pscore">${first.score} pts</div></div>`:''}
+          ${third?`<div class="podium p3"><span class="medal">🥉</span><div class="pname">${escapeHtml(third.name)}</div><div class="pscore">${third.score} pts</div></div>`:''}
+        </div>
+        ${scored.length>3?`<div class="stack" style="text-align:left; max-width:340px; margin:0 auto;">
+          ${scored.slice(3).map((t,i)=>`<div class="muted">${i+4}. ${escapeHtml(t.name)} — ${t.score} pts</div>`).join('')}
+        </div>`:''}
+        <p class="footer-note" style="margin-top:16px;">Thanks for playing Byte the Bullet 🎉</p>
+      </div>
+    `);
+    const finalCard = document.getElementById('finalCard');
+    if(first){ const r=document.createElement('div'); r.className='rocket-emoji'; r.textContent='🚀'; r.style.left='46%'; r.style.bottom='60px'; finalCard.appendChild(r); }
+    if(second){ const ic=document.createElement('div'); ic.className='icecream-emoji'; ic.textContent='🍦'; ic.style.left='18%'; ic.style.bottom='150px'; finalCard.appendChild(ic); }
+    const colors=['#C0432D','#D9A441','#7C9143','#4F6470'];
+    for(let i=0;i<28;i++){
+      const c=document.createElement('div'); c.className='confetti'; c.style.left=(10+Math.random()*80)+'%'; c.style.top=(Math.random()*20)+'px';
+      c.style.background=colors[i%colors.length]; c.style.animationDuration=(1.2+Math.random()*1.2)+'s'; c.style.animationDelay=(Math.random()*0.6)+'s';
+      finalCard.appendChild(c);
+    }
+  }
+
+  // ---------- JOIN ----------
+  function extractBucketFromInput(v){
+    v = v.trim();
+    const m = v.match(/[?&]b=([^&]+)/);
+    if(m) return decodeURIComponent(m[1]);
+    return v;
+  }
+
+  function renderJoinCode(prefill){
+    stopPoll();
+    render(`
+      ${brand()}
+      <div class="card stack">
+        <h2>Join a Game</h2>
+        <p class="muted">Paste the room link or code from the host's screen</p>
+        <input type="text" id="codeInput" placeholder="Room link or code" value="${prefill?escapeHtml(prefill):''}" />
+        <p id="err" class="errbox"></p>
+        <button class="primary" id="btnGo">Continue</button>
+        <button class="ghost" id="btnBack">Back</button>
+      </div>
+    `);
+    document.getElementById('btnBack').onclick = renderLanding;
+    document.getElementById('btnGo').onclick = async ()=>{
+      const raw = document.getElementById('codeInput').value;
+      const bucket = extractBucketFromInput(raw);
+      if(!bucket){ document.getElementById('err').textContent = 'Enter the room link or code.'; return; }
+      document.getElementById('err').textContent = 'Checking…';
+      const meta = await kvGet(bucket, metaKey());
+      if(!meta){ document.getElementById('err').textContent = "That room wasn't found. Double-check the link/code with the host."; return; }
+      ctx.bucket = bucket;
+      renderJoinName();
+    };
+  }
+
+  function renderJoinName(){
+    render(`
+      ${brand()}
+      <div class="card stack">
+        <h2>Team Name</h2>
+        <input type="text" id="nameInput" placeholder="e.g. Ctrl+Alt+Elite" maxlength="18" />
+        <p id="err" class="errbox"></p>
+        <button class="primary" id="btnJoinNow">Join Room</button>
+      </div>
+    `);
+    document.getElementById('btnJoinNow').onclick = async ()=>{
+      const name = document.getElementById('nameInput').value.trim();
+      if(!name){ document.getElementById('err').textContent = 'Enter a team name.'; return; }
+      const roster = (await kvGet(ctx.bucket, rosterKey())) || [];
+      if(roster.some(n=>n.toLowerCase()===name.toLowerCase())){
+        document.getElementById('err').textContent = 'That team name is taken — try another.';
+        return;
+      }
+      roster.push(name);
+      await kvSet(ctx.bucket, rosterKey(), roster);
+      await kvSet(ctx.bucket, teamKey(name), { score:0 });
+      ctx.teamName = name; ctx.lastPos = -1; ctx.hasAnswered = false;
+      renderTeamPlay();
+    };
+  }
+
+  // ---------- TEAM ----------
+  function renderTeamWaiting(){
+    render(`${brand()}<div class="card center"><p class="muted">Team</p><h2>${escapeHtml(ctx.teamName)}</h2>
+      <div class="waiting-pulse" style="margin-top:18px;"></div><p class="muted" style="margin-top:14px;">Waiting for the host to start…</p></div>`);
+  }
+
+  function renderTeamPlay(){
+    stopPoll();
+    renderTeamWaiting();
+    startPoll(async ()=>{
+      const meta = await kvGet(ctx.bucket, metaKey());
+      if(!meta) return;
+      if(meta.phase === 'lobby'){
+        if(ctx.currentPhase !== 'lobby'){ ctx.currentPhase='lobby'; renderTeamWaiting(); }
+        return;
+      }
+      if(meta.phase === 'final'){
+        if(ctx.currentPhase !== 'final'){ ctx.currentPhase='final'; stopPoll(); renderFinalScreen(ctx.bucket); }
+        return;
+      }
+      if(meta.pos !== ctx.lastPos){ ctx.lastPos = meta.pos; ctx.hasAnswered = false; }
+      if(meta.phase === 'question'){
+        ctx.currentPhase = 'question';
+        renderTeamQuestion(meta);
+      } else if(meta.phase === 'reveal' || meta.phase === 'scores'){
+        if(ctx.currentPhase !== meta.phase){ ctx.currentPhase = meta.phase; renderTeamFeedback(meta); }
+      }
+    }, 900);
+  }
+
+  async function renderTeamQuestion(meta){
+    const q = FLAT[meta.pos];
+    const elapsed = (Date.now()-meta.startedAt)/1000;
+    const remaining = Math.max(0, QT - elapsed);
+    const pct = Math.max(0, (remaining/QT)*100);
+    const already = ctx.hasAnswered;
+    const mySelected = ctx.mySelected;
+
+    render(`
+      ${brand()}
+      <div class="round-banner" style="background:${q.roundColor}"><span>${q.roundName}</span><span>Q${q.qIndex+1}</span></div>
+      <div class="card">
+        <div class="timerbar-track"><div class="timerbar-fill" style="width:${pct}%"></div></div>
+        <div class="qicon">${q.icon}</div>
+        <div class="qtext">${q.text}</div>
+        <div id="opts">${q.options.map((o,i)=>`<button class="opt ${mySelected===i?'selected':''}" data-i="${i}" ${already||remaining<=0?'disabled':''}>${o}</button>`).join('')}</div>
+        <p class="muted center" id="statusMsg" style="margin-top:8px;">${already?"Answer locked in — waiting for reveal…":"Tap your answer!"}</p>
+      </div>
+    `);
+    if(!already && remaining>0){
+      document.querySelectorAll('#opts .opt').forEach(btn=>{
+        btn.onclick = async ()=>{
+          if(ctx.hasAnswered) return;
+          ctx.hasAnswered = true;
+          ctx.mySelected = parseInt(btn.dataset.i,10);
+          const correct = ctx.mySelected === q.correct;
+          const ts = Date.now();
+          await kvSet(ctx.bucket, ansKey(meta.pos, ctx.teamName), { name: ctx.teamName, choice: ctx.mySelected, ts, correct });
+          if(correct){
+            const t = await kvGet(ctx.bucket, teamKey(ctx.teamName));
+            const gain = 10 + Math.round(5*(remaining/QT));
+            await kvSet(ctx.bucket, teamKey(ctx.teamName), { score: (t?t.score:0) + gain });
+          }
+          document.querySelectorAll('#opts .opt').forEach(b=>b.disabled=true);
+          const sel = document.querySelector(`#opts .opt[data-i="${ctx.mySelected}"]`);
+          if(sel) sel.classList.add('selected');
+          document.getElementById('statusMsg').textContent = 'Answer locked in — waiting for reveal…';
+        };
+      });
+    }
+  }
+
+  async function renderTeamFeedback(meta){
+    const q = FLAT[meta.pos];
+    const mine = await kvGet(ctx.bucket, ansKey(meta.pos, ctx.teamName));
+    const gotIt = mine && mine.correct;
+    const answeredAtAll = !!mine;
+
+    if(meta.phase === 'reveal'){
+      render(`
+        ${brand()}
+        <div class="round-banner" style="background:${q.roundColor}"><span>${q.roundName}</span><span>Answer revealed</span></div>
+        <div class="card">
+          <div class="feedback-banner ${gotIt?'good':'bad'}">${!answeredAtAll?"⏱️ Time's up — no answer submitted":gotIt?'✅ Correct! Nice one.':'❌ Not quite this time.'}</div>
+          ${q.options.map((o,i)=>`<div class="opt ${i===q.correct?'correct':(mine && mine.choice===i?'wrong':'dim')}">${o}${i===q.correct?' ✓':''}</div>`).join('')}
+        </div>
+      `);
+    } else if(meta.phase === 'scores'){
+      const scored = await getAllTeamsWithScores(ctx.bucket);
+      const mineScore = scored.find(t=>t.name===ctx.teamName);
+      const maxScore = Math.max(1, ...scored.map(t=>t.score));
+      const sorted = [...scored].sort((a,b)=>b.score-a.score);
+      const rank = sorted.findIndex(t=>t.name===ctx.teamName)+1;
+      render(`
+        ${brand()}
+        <div class="round-banner" style="background:${q.roundColor}"><span>Live Standings</span><span>You're #${rank}</span></div>
+        <div class="card">
+          <div class="leader-row">
+            <div class="leader-name">${escapeHtml(ctx.teamName)}</div>
+            <div class="leader-track"><div class="leader-bar" style="width:${Math.round((mineScore.score/maxScore)*100)}%"><span class="leader-score">${mineScore.score}</span><span class="leader-toy">${toyFor(ctx.teamName)}</span></div></div>
+          </div>
+          <p class="muted center" style="margin-top:10px;">Waiting for the host to continue…</p>
+        </div>
+      `);
+    }
+  }
+
+  // ---------- boot ----------
+  const urlParams = new URLSearchParams(window.location.search);
+  const bParam = urlParams.get('b');
+  if(bParam){
+    renderJoinCode(); // shows the code screen prefilled, but auto-continue below
+    (async ()=>{
+      const meta = await kvGet(bParam, metaKey());
+      if(meta){
+        ctx.bucket = bParam;
+        renderJoinName();
+      }
+    })();
+  } else {
+    renderLanding();
+  }
+})();
+</script>
+</body>
+</html>
