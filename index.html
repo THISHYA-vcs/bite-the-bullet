@@ -130,7 +130,7 @@
 
   const TOYS = ['🐯','🦊','🐼','🐸','🐙','🦉','🐳','🦖','🐨','🐵','🦁','🐺'];
   function toyFor(name){ let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))>>>0; return TOYS[h % TOYS.length]; }
-  const QT = 10;
+  const QT = 15;
 
   // ===== Firebase REST helpers =====
   function sanitizeKey(name){ return String(name).replace(/[.#$\[\]\/]/g, '_'); }
@@ -189,10 +189,17 @@
 
   const app = document.getElementById('app');
   let pollTimer = null;
+  let pollToken = 0; // bumped every time polling stops/restarts, so stale in-flight ticks can detect they're outdated and bail before touching the screen
   let ctx = { code:null, teamName:null, lastPos:-1, hasAnswered:false, currentPhase:null };
 
-  function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
-  function startPoll(fn, ms){ stopPoll(); fn(); pollTimer = setInterval(fn, ms || 1200); }
+  function stopPoll(){ pollToken++; if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+  function startPoll(fn, ms){
+    stopPoll();
+    const myToken = pollToken;
+    function wrapped(){ if(myToken !== pollToken) return; fn(myToken); }
+    wrapped();
+    pollTimer = setInterval(wrapped, ms || 1200);
+  }
   function render(html){ app.innerHTML = html; }
   function brand(){ return `<div class="brand"><span class="bullet"></span><h1>Byte the Bullet</h1><span class="sub">technical & logical thinking quiz</span></div>`; }
 
@@ -209,7 +216,7 @@
           <button class="ghost" id="btnJoin">Join a Game</button>
         </div>
       </div>
-      <p class="footer-note">3 rounds — SALT, PEPPER, SOUR · 10 seconds per question</p>
+      <p class="footer-note">3 rounds — SALT, PEPPER, SOUR · 15 seconds per question</p>
     `);
     document.getElementById('btnHost').onclick = ()=> renderHostSetup();
     document.getElementById('btnJoin').onclick = ()=> renderJoinCode();
@@ -273,16 +280,30 @@
   function renderHostQuestion(){
     stopPoll();
     let revealed = false;
-    async function tick(){
+    let latestMeta = null;
+
+    async function doReveal(){
+      if(revealed || !latestMeta) return;
+      revealed = true;
+      await fSet(metaPath(ctx.code), { phase:'reveal', pos: latestMeta.pos, startedAt: latestMeta.startedAt });
+      stopPoll();
+      renderHostReveal(latestMeta.pos);
+    }
+
+    async function tick(token){
       const meta = await fGet(metaPath(ctx.code));
+      if(token !== pollToken) return;
       if(!meta) return;
+      latestMeta = meta;
       const pos = meta.pos, startedAt = meta.startedAt;
       const q = FLAT[pos];
       const elapsed = (Date.now() - startedAt)/1000;
       const remaining = Math.max(0, QT - elapsed);
       const pct = Math.max(0, (remaining/QT)*100);
       const answers = await getAnswersFor(ctx.code, pos);
+      if(token !== pollToken) return;
       const roster = await fGet(rosterPath(ctx.code));
+      if(token !== pollToken) return;
       const rosterCount = roster ? Object.keys(roster).length : 0;
 
       render(`
@@ -294,13 +315,14 @@
           <div class="qtext">${q.text}</div>
           ${q.options.map(o=>`<div class="opt dim">${o}</div>`).join('')}
           <p class="muted center" style="margin-top:10px;">${answers.length} / ${rosterCount} teams answered · ${remaining.toFixed(0)}s left</p>
+          <div class="row" style="margin-top:14px;"><button class="ghost" id="btnSkip">Skip to Reveal →</button></div>
         </div>
       `);
+      const skipBtn = document.getElementById('btnSkip');
+      if(skipBtn) skipBtn.onclick = doReveal;
+
       if(remaining<=0 && !revealed){
-        revealed = true;
-        await fSet(metaPath(ctx.code), { phase:'reveal', pos, startedAt });
-        stopPoll();
-        renderHostReveal(pos);
+        doReveal();
       }
     }
     startPoll(tick, 600);
@@ -467,8 +489,9 @@
   function renderTeamPlay(){
     stopPoll();
     renderTeamWaiting();
-    startPoll(async ()=>{
+    startPoll(async (token)=>{
       const meta = await fGet(metaPath(ctx.code));
+      if(token !== pollToken) return;
       if(!meta) return;
       if(meta.phase === 'lobby'){
         if(ctx.currentPhase !== 'lobby'){ ctx.currentPhase='lobby'; renderTeamWaiting(); }
