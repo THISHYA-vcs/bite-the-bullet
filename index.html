@@ -40,7 +40,7 @@
   input[type=text]{ font-family:'Inter',sans-serif; font-size:16px; padding:14px 16px; border-radius:10px;
     border:1px solid var(--line); background:#fff; width:100%; color:var(--ink); }
   input[type=text]:focus{ outline:2px solid var(--chili); outline-offset:1px; }
-  .code-display{ font-family:'Space Grotesk',sans-serif; font-size:30px; font-weight:700; letter-spacing:0.06em;
+  .code-display{ font-family:'Space Grotesk',sans-serif; font-size:44px; font-weight:700; letter-spacing:0.1em;
     color:var(--chili); margin:6px 0; word-break:break-all; }
   .muted{ color:var(--ink-soft); font-size:14px; }
   .roster-list{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:14px; }
@@ -99,6 +99,9 @@
 
 <script>
 (function(){
+  // ===== Firebase Realtime Database (set up once by the host) =====
+  const FIREBASE_URL = 'https://bite-the-bullet-e54fd-default-rtdb.firebaseio.com';
+
   const ROUNDS = [
     { name:'SALT', tagline:'The basics — light & easy warm-up', color:'var(--salt)', questions:[
       {icon:'🧠', text:'Who is known as the Father of AI?', options:['Alan Turing','John McCarthy','Charles Babbage','Tim Berners-Lee'], correct:1},
@@ -129,90 +132,64 @@
   function toyFor(name){ let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))>>>0; return TOYS[h % TOYS.length]; }
   const QT = 10;
 
-  // ---------- kvdb.io backend (works from any static host, incl. GitHub Pages) ----------
-  const KV_BASE = 'https://kvdb.io';
+  // ===== Firebase REST helpers =====
+  function sanitizeKey(name){ return String(name).replace(/[.#$\[\]\/]/g, '_'); }
+  function fbPath(p){ return `${FIREBASE_URL}/${p}.json`; }
 
-  async function createBucket(){
+  async function fGet(p){
     try{
-      const res = await fetch(KV_BASE + '/', { method:'POST' });
+      const res = await fetch(fbPath(p), { cache:'no-store' });
       if(!res.ok) return null;
-      const id = (await res.text()).trim();
-      return id.length > 0 && id.length < 60 ? id : null;
-    }catch(e){ return null; }
+      const data = await res.json();
+      return data;
+    }catch(e){ console.error('firebase GET failed', p, e); return null; }
   }
-  async function kvSet(bucket, key, value){
+  async function fSet(p, value){
     try{
-      await fetch(`${KV_BASE}/${bucket}/${encodeURIComponent(key)}`, { method:'PUT', body: JSON.stringify(value) });
-      return true;
-    }catch(e){ return false; }
-  }
-  async function kvGet(bucket, key){
-    try{
-      const res = await fetch(`${KV_BASE}/${bucket}/${encodeURIComponent(key)}`, { cache:'no-store' });
-      if(!res.ok) return null;
-      const text = await res.text();
-      if(!text) return null;
-      try{ return JSON.parse(text); }catch(e){ return null; }
-    }catch(e){ return null; }
-  }
-  async function kvList(bucket, prefix){
-    try{
-      const res = await fetch(`${KV_BASE}/${bucket}/?prefix=${encodeURIComponent(prefix)}`);
-      if(!res.ok) return [];
-      const text = await res.text();
-      if(!text) return [];
-      try{
-        const arr = JSON.parse(text);
-        if(Array.isArray(arr)) return arr;
-      }catch(e){}
-      return text.split('\n').map(s=>s.trim()).filter(Boolean);
-    }catch(e){ return []; }
-  }
-  async function bucketExists(bucket){
-    // treat any non-network-error response (even 404 for a missing key) as "bucket reachable"
-    try{
-      await fetch(`${KV_BASE}/${bucket}/__probe__`, { cache:'no-store' });
-      return true;
-    }catch(e){ return false; }
+      const res = await fetch(fbPath(p), {
+        method:'PUT',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify(value)
+      });
+      return res.ok;
+    }catch(e){ console.error('firebase SET failed', p, e); return false; }
   }
 
-  function metaKey(){ return 'meta'; }
-  function rosterKey(){ return 'roster'; }
-  function teamKey(name){ return `team:${name}`; }
-  function ansKey(pos,name){ return `ans:${pos}:${name}`; }
-  function ansPrefix(pos){ return `ans:${pos}:`; }
+  function metaPath(code){ return `rooms/${code}/meta`; }
+  function rosterPath(code){ return `rooms/${code}/roster`; }
+  function teamPath(code,name){ return `rooms/${code}/teams/${sanitizeKey(name)}`; }
+  function teamsRootPath(code){ return `rooms/${code}/teams`; }
+  function answersForQPath(code,pos){ return `rooms/${code}/answers/${pos}`; }
+  function answerPath(code,pos,name){ return `rooms/${code}/answers/${pos}/${sanitizeKey(name)}`; }
 
-  async function getAllTeamsWithScores(bucket){
-    const roster = (await kvGet(bucket, rosterKey())) || [];
-    const out = [];
-    for(const name of roster){
-      const t = await kvGet(bucket, teamKey(name));
-      out.push({ name, score: t ? t.score : 0 });
-    }
-    return out;
+  function genCode(){
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let c=''; for(let i=0;i<4;i++) c += chars[Math.floor(Math.random()*chars.length)];
+    return c;
   }
-  async function getAnswersFor(bucket,pos){
-    const keys = await kvList(bucket, ansPrefix(pos));
-    const out = [];
-    for(const k of keys){
-      const cleanKey = k.includes('/') ? k.split('/').pop() : k;
-      const r = await kvGet(bucket, cleanKey.startsWith('ans:') ? cleanKey : `ans:${pos}:${cleanKey.split(':').pop()}`);
-      if(r) out.push(r);
-    }
-    return out;
+
+  async function getAllTeamsWithScores(code){
+    const teams = await fGet(teamsRootPath(code));
+    if(!teams) return [];
+    return Object.values(teams).map(t=>({ name:t.name, score:t.score||0 }));
+  }
+  async function getAnswersFor(code,pos){
+    const answers = await fGet(answersForQPath(code,pos));
+    if(!answers) return [];
+    return Object.values(answers);
   }
 
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function joinLink(bucket){
+  function joinLink(code){
     const url = new URL(window.location.href);
     url.search = '';
-    url.searchParams.set('b', bucket);
+    url.searchParams.set('r', code);
     return url.toString();
   }
 
   const app = document.getElementById('app');
   let pollTimer = null;
-  let ctx = { bucket:null, teamName:null, lastPos:-1, hasAnswered:false, currentPhase:null };
+  let ctx = { code:null, teamName:null, lastPos:-1, hasAnswered:false, currentPhase:null };
 
   function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
   function startPoll(fn, ms){ stopPoll(); fn(); pollTimer = setInterval(fn, ms || 1200); }
@@ -241,48 +218,53 @@
   // ---------- HOST ----------
   async function renderHostSetup(){
     render(`${brand()}<div class="card center"><p class="muted">Setting up your room…</p><div class="waiting-pulse" style="margin-top:14px;"></div></div>`);
-    const bucket = await createBucket();
-    if(!bucket){
+    let code = genCode();
+    let existing = await fGet(metaPath(code));
+    let tries = 0;
+    while(existing && tries < 5){ code = genCode(); existing = await fGet(metaPath(code)); tries++; }
+    const ok = await fSet(metaPath(code), { phase:'lobby', pos:0, startedAt:null });
+    if(!ok){
       render(`${brand()}<div class="card center">
-        <p class="errbox">Couldn't reach the game server just now. Check your internet connection and try again.</p>
+        <p class="errbox">Couldn't reach the database. Check your internet connection and try again.</p>
         <button class="primary" id="retryBtn" style="margin-top:12px;">Try Again</button>
       </div>`);
       document.getElementById('retryBtn').onclick = renderHostSetup;
       return;
     }
-    await kvSet(bucket, metaKey(), { phase:'lobby', pos:0, startedAt:null });
-    await kvSet(bucket, rosterKey(), []);
-    ctx.bucket = bucket;
+    await fSet(rosterPath(code), {});
+    ctx.code = code;
     renderHostLobby();
   }
 
   function renderHostLobby(){
-    const link = joinLink(ctx.bucket);
+    const link = joinLink(ctx.code);
     render(`
       ${brand()}
       <div class="card center">
+        <p class="muted">Room code</p>
+        <div class="code-display">${ctx.code}</div>
         <p class="muted">Students scan this to join instantly</p>
         <div id="qrWrap"></div>
-        <p class="muted">Or open this link:</p>
-        <div class="code-display" style="font-size:14px;">${escapeHtml(link)}</div>
+        <p class="muted" style="font-size:12px;">${escapeHtml(link)}</p>
         <p class="muted">Waiting for teams to join…</p>
         <div id="roster" class="roster-list"></div>
         <div style="margin-top:20px;"><button class="primary" id="btnStart" disabled>Start Game</button></div>
       </div>
       <p class="footer-note">Keep this screen up on the projector or shared display</p>
     `);
-    new QRCode(document.getElementById('qrWrap'), { text: link, width:200, height:200, colorDark:'#1B211D', colorLight:'#ffffff' });
+    new QRCode(document.getElementById('qrWrap'), { text: link, width:180, height:180, colorDark:'#1B211D', colorLight:'#ffffff' });
     startPoll(async ()=>{
-      const roster = (await kvGet(ctx.bucket, rosterKey())) || [];
+      const roster = await fGet(rosterPath(ctx.code));
+      const names = roster ? Object.values(roster) : [];
       const rEl = document.getElementById('roster');
-      if(rEl) rEl.innerHTML = roster.length ? roster.map(n=>`<div class="chip">${escapeHtml(n)}</div>`).join('') : '<span class="muted">No teams yet</span>';
+      if(rEl) rEl.innerHTML = names.length ? names.map(n=>`<div class="chip">${escapeHtml(n)}</div>`).join('') : '<span class="muted">No teams yet</span>';
       const btn = document.getElementById('btnStart');
-      if(btn) btn.disabled = roster.length===0;
+      if(btn) btn.disabled = names.length===0;
     }, 1200);
     setTimeout(()=>{
       const btn = document.getElementById('btnStart');
       if(btn) btn.onclick = async ()=>{
-        await kvSet(ctx.bucket, metaKey(), { phase:'question', pos:0, startedAt: Date.now() });
+        await fSet(metaPath(ctx.code), { phase:'question', pos:0, startedAt: Date.now() });
         renderHostQuestion();
       };
     }, 50);
@@ -292,15 +274,16 @@
     stopPoll();
     let revealed = false;
     async function tick(){
-      const meta = await kvGet(ctx.bucket, metaKey());
+      const meta = await fGet(metaPath(ctx.code));
       if(!meta) return;
       const pos = meta.pos, startedAt = meta.startedAt;
       const q = FLAT[pos];
       const elapsed = (Date.now() - startedAt)/1000;
       const remaining = Math.max(0, QT - elapsed);
       const pct = Math.max(0, (remaining/QT)*100);
-      const answers = await getAnswersFor(ctx.bucket, pos);
-      const roster = (await kvGet(ctx.bucket, rosterKey())) || [];
+      const answers = await getAnswersFor(ctx.code, pos);
+      const roster = await fGet(rosterPath(ctx.code));
+      const rosterCount = roster ? Object.keys(roster).length : 0;
 
       render(`
         ${brand()}
@@ -310,12 +293,12 @@
           <div class="qicon">${q.icon}</div>
           <div class="qtext">${q.text}</div>
           ${q.options.map(o=>`<div class="opt dim">${o}</div>`).join('')}
-          <p class="muted center" style="margin-top:10px;">${answers.length} / ${roster.length} teams answered · ${remaining.toFixed(0)}s left</p>
+          <p class="muted center" style="margin-top:10px;">${answers.length} / ${rosterCount} teams answered · ${remaining.toFixed(0)}s left</p>
         </div>
       `);
       if(remaining<=0 && !revealed){
         revealed = true;
-        await kvSet(ctx.bucket, metaKey(), { phase:'reveal', pos, startedAt });
+        await fSet(metaPath(ctx.code), { phase:'reveal', pos, startedAt });
         stopPoll();
         renderHostReveal(pos);
       }
@@ -326,7 +309,7 @@
   async function renderHostReveal(pos){
     stopPoll();
     const q = FLAT[pos];
-    const answers = await getAnswersFor(ctx.bucket, pos);
+    const answers = await getAnswersFor(ctx.code, pos);
     const correctTeams = answers.filter(a=>a.correct).sort((a,b)=>a.ts-b.ts).map(a=>a.name);
     render(`
       ${brand()}
@@ -340,7 +323,7 @@
       </div>
     `);
     document.getElementById('btnLeader').onclick = async ()=>{
-      await kvSet(ctx.bucket, metaKey(), { phase:'scores', pos, startedAt:null });
+      await fSet(metaPath(ctx.code), { phase:'scores', pos, startedAt:null });
       renderHostScores(pos);
     };
   }
@@ -348,8 +331,8 @@
   async function renderHostScores(pos){
     stopPoll();
     const q = FLAT[pos];
-    const answers = await getAnswersFor(ctx.bucket, pos);
-    const scored = await getAllTeamsWithScores(ctx.bucket);
+    const answers = await getAnswersFor(ctx.code, pos);
+    const scored = await getAllTeamsWithScores(ctx.code);
     const correctOrder = answers.filter(a=>a.correct).sort((a,b)=>a.ts-b.ts).map(a=>a.name);
     const rest = scored.map(t=>t.name).filter(n=>!correctOrder.includes(n))
       .sort((a,b)=> scored.find(t=>t.name===b).score - scored.find(t=>t.name===a).score);
@@ -374,19 +357,19 @@
     `);
     document.getElementById('btnNext').onclick = async ()=>{
       if(isLast){
-        await kvSet(ctx.bucket, metaKey(), { phase:'final', pos, startedAt:null });
-        renderFinalScreen(ctx.bucket);
+        await fSet(metaPath(ctx.code), { phase:'final', pos, startedAt:null });
+        renderFinalScreen(ctx.code);
       } else {
         const nextPos = pos+1;
-        await kvSet(ctx.bucket, metaKey(), { phase:'question', pos: nextPos, startedAt: Date.now() });
+        await fSet(metaPath(ctx.code), { phase:'question', pos: nextPos, startedAt: Date.now() });
         renderHostQuestion();
       }
     };
   }
 
-  async function renderFinalScreen(bucket){
+  async function renderFinalScreen(code){
     stopPoll();
-    const scored = await getAllTeamsWithScores(bucket);
+    const scored = await getAllTeamsWithScores(code);
     scored.sort((a,b)=>b.score-a.score);
     const [first, second, third] = [scored[0], scored[1], scored[2]];
     render(`
@@ -416,21 +399,21 @@
   }
 
   // ---------- JOIN ----------
-  function extractBucketFromInput(v){
+  function extractCodeFromInput(v){
     v = v.trim();
-    const m = v.match(/[?&]b=([^&]+)/);
-    if(m) return decodeURIComponent(m[1]);
-    return v;
+    const m = v.match(/[?&]r=([^&]+)/);
+    if(m) return decodeURIComponent(m[1]).toUpperCase();
+    return v.toUpperCase();
   }
 
-  function renderJoinCode(prefill){
+  function renderJoinCode(){
     stopPoll();
     render(`
       ${brand()}
       <div class="card stack">
         <h2>Join a Game</h2>
-        <p class="muted">Paste the room link or code from the host's screen</p>
-        <input type="text" id="codeInput" placeholder="Room link or code" value="${prefill?escapeHtml(prefill):''}" />
+        <p class="muted">Enter the room code shown on the host's screen</p>
+        <input type="text" id="codeInput" maxlength="4" placeholder="ABCD" />
         <p id="err" class="errbox"></p>
         <button class="primary" id="btnGo">Continue</button>
         <button class="ghost" id="btnBack">Back</button>
@@ -438,13 +421,12 @@
     `);
     document.getElementById('btnBack').onclick = renderLanding;
     document.getElementById('btnGo').onclick = async ()=>{
-      const raw = document.getElementById('codeInput').value;
-      const bucket = extractBucketFromInput(raw);
-      if(!bucket){ document.getElementById('err').textContent = 'Enter the room link or code.'; return; }
+      const code = extractCodeFromInput(document.getElementById('codeInput').value);
+      if(!code){ document.getElementById('err').textContent = 'Enter the room code.'; return; }
       document.getElementById('err').textContent = 'Checking…';
-      const meta = await kvGet(bucket, metaKey());
-      if(!meta){ document.getElementById('err').textContent = "That room wasn't found. Double-check the link/code with the host."; return; }
-      ctx.bucket = bucket;
+      const meta = await fGet(metaPath(code));
+      if(!meta){ document.getElementById('err').textContent = "That room wasn't found. Double-check the code with the host."; return; }
+      ctx.code = code;
       renderJoinName();
     };
   }
@@ -454,6 +436,7 @@
       ${brand()}
       <div class="card stack">
         <h2>Team Name</h2>
+        <p class="muted">Room <span class="small-code">${ctx.code}</span></p>
         <input type="text" id="nameInput" placeholder="e.g. Ctrl+Alt+Elite" maxlength="18" />
         <p id="err" class="errbox"></p>
         <button class="primary" id="btnJoinNow">Join Room</button>
@@ -462,14 +445,14 @@
     document.getElementById('btnJoinNow').onclick = async ()=>{
       const name = document.getElementById('nameInput').value.trim();
       if(!name){ document.getElementById('err').textContent = 'Enter a team name.'; return; }
-      const roster = (await kvGet(ctx.bucket, rosterKey())) || [];
-      if(roster.some(n=>n.toLowerCase()===name.toLowerCase())){
+      const roster = await fGet(rosterPath(ctx.code));
+      const existingNames = roster ? Object.values(roster) : [];
+      if(existingNames.some(n=>n.toLowerCase()===name.toLowerCase())){
         document.getElementById('err').textContent = 'That team name is taken — try another.';
         return;
       }
-      roster.push(name);
-      await kvSet(ctx.bucket, rosterKey(), roster);
-      await kvSet(ctx.bucket, teamKey(name), { score:0 });
+      await fSet(`${rosterPath(ctx.code)}/${sanitizeKey(name)}`, name);
+      await fSet(teamPath(ctx.code, name), { name, score:0 });
       ctx.teamName = name; ctx.lastPos = -1; ctx.hasAnswered = false;
       renderTeamPlay();
     };
@@ -485,14 +468,14 @@
     stopPoll();
     renderTeamWaiting();
     startPoll(async ()=>{
-      const meta = await kvGet(ctx.bucket, metaKey());
+      const meta = await fGet(metaPath(ctx.code));
       if(!meta) return;
       if(meta.phase === 'lobby'){
         if(ctx.currentPhase !== 'lobby'){ ctx.currentPhase='lobby'; renderTeamWaiting(); }
         return;
       }
       if(meta.phase === 'final'){
-        if(ctx.currentPhase !== 'final'){ ctx.currentPhase='final'; stopPoll(); renderFinalScreen(ctx.bucket); }
+        if(ctx.currentPhase !== 'final'){ ctx.currentPhase='final'; stopPoll(); renderFinalScreen(ctx.code); }
         return;
       }
       if(meta.pos !== ctx.lastPos){ ctx.lastPos = meta.pos; ctx.hasAnswered = false; }
@@ -532,11 +515,11 @@
           ctx.mySelected = parseInt(btn.dataset.i,10);
           const correct = ctx.mySelected === q.correct;
           const ts = Date.now();
-          await kvSet(ctx.bucket, ansKey(meta.pos, ctx.teamName), { name: ctx.teamName, choice: ctx.mySelected, ts, correct });
+          await fSet(answerPath(ctx.code, meta.pos, ctx.teamName), { name: ctx.teamName, choice: ctx.mySelected, ts, correct });
           if(correct){
-            const t = await kvGet(ctx.bucket, teamKey(ctx.teamName));
+            const t = await fGet(teamPath(ctx.code, ctx.teamName));
             const gain = 10 + Math.round(5*(remaining/QT));
-            await kvSet(ctx.bucket, teamKey(ctx.teamName), { score: (t?t.score:0) + gain });
+            await fSet(teamPath(ctx.code, ctx.teamName), { name: ctx.teamName, score: (t?t.score:0) + gain });
           }
           document.querySelectorAll('#opts .opt').forEach(b=>b.disabled=true);
           const sel = document.querySelector(`#opts .opt[data-i="${ctx.mySelected}"]`);
@@ -549,7 +532,7 @@
 
   async function renderTeamFeedback(meta){
     const q = FLAT[meta.pos];
-    const mine = await kvGet(ctx.bucket, ansKey(meta.pos, ctx.teamName));
+    const mine = await fGet(answerPath(ctx.code, meta.pos, ctx.teamName));
     const gotIt = mine && mine.correct;
     const answeredAtAll = !!mine;
 
@@ -563,7 +546,7 @@
         </div>
       `);
     } else if(meta.phase === 'scores'){
-      const scored = await getAllTeamsWithScores(ctx.bucket);
+      const scored = await getAllTeamsWithScores(ctx.code);
       const mineScore = scored.find(t=>t.name===ctx.teamName);
       const maxScore = Math.max(1, ...scored.map(t=>t.score));
       const sorted = [...scored].sort((a,b)=>b.score-a.score);
@@ -584,15 +567,13 @@
 
   // ---------- boot ----------
   const urlParams = new URLSearchParams(window.location.search);
-  const bParam = urlParams.get('b');
-  if(bParam){
-    renderJoinCode(); // shows the code screen prefilled, but auto-continue below
+  const rParam = urlParams.get('r');
+  if(rParam){
     (async ()=>{
-      const meta = await kvGet(bParam, metaKey());
-      if(meta){
-        ctx.bucket = bParam;
-        renderJoinName();
-      }
+      const code = rParam.toUpperCase();
+      const meta = await fGet(metaPath(code));
+      if(meta){ ctx.code = code; renderJoinName(); }
+      else { renderJoinCode(); }
     })();
   } else {
     renderLanding();
