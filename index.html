@@ -315,15 +315,11 @@
           <div class="qtext">${q.text}</div>
           ${q.options.map(o=>`<div class="opt dim">${o}</div>`).join('')}
           <p class="muted center" style="margin-top:10px;">${answers.length} / ${rosterCount} teams answered · ${remaining.toFixed(0)}s left</p>
-          <div class="row" style="margin-top:14px;"><button class="ghost" id="btnSkip">Skip to Reveal →</button></div>
+          <div class="row" style="margin-top:14px;"><button class="primary" id="btnSkip">Reveal Answer →</button></div>
         </div>
       `);
       const skipBtn = document.getElementById('btnSkip');
       if(skipBtn) skipBtn.onclick = doReveal;
-
-      if(remaining<=0 && !revealed){
-        doReveal();
-      }
     }
     startPoll(tick, 600);
   }
