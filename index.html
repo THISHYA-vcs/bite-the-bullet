@@ -280,48 +280,71 @@
   function renderHostQuestion(){
     stopPoll();
     let revealed = false;
-    let latestMeta = null;
+    let meta = null;
+    let timerId = null;
+    let countId = null;
 
-    async function doReveal(){
-      if(revealed || !latestMeta) return;
-      revealed = true;
-      await fSet(metaPath(ctx.code), { phase:'reveal', pos: latestMeta.pos, startedAt: latestMeta.startedAt });
-      stopPoll();
-      renderHostReveal(latestMeta.pos);
+    function cleanup(){
+      if(timerId){ clearInterval(timerId); timerId=null; }
+      if(countId){ clearInterval(countId); countId=null; }
     }
 
-    async function tick(token){
-      const meta = await fGet(metaPath(ctx.code));
-      if(token !== pollToken) return;
-      if(!meta) return;
-      latestMeta = meta;
-      const pos = meta.pos, startedAt = meta.startedAt;
-      const q = FLAT[pos];
-      const elapsed = (Date.now() - startedAt)/1000;
-      const remaining = Math.max(0, QT - elapsed);
-      const pct = Math.max(0, (remaining/QT)*100);
-      const answers = await getAnswersFor(ctx.code, pos);
-      if(token !== pollToken) return;
-      const roster = await fGet(rosterPath(ctx.code));
-      if(token !== pollToken) return;
-      const rosterCount = roster ? Object.keys(roster).length : 0;
+    async function doReveal(){
+      if(revealed || !meta) return;
+      revealed = true;
+      cleanup();
+      await fSet(metaPath(ctx.code), { phase:'reveal', pos: meta.pos, startedAt: meta.startedAt });
+      renderHostReveal(meta.pos);
+    }
 
+    function paint(q){
       render(`
         ${brand()}
         <div class="round-banner" style="background:${q.roundColor}"><span>ROUND ${q.round+1} · ${q.roundName}</span><span>Q${q.qIndex+1} / ${ROUNDS[q.round].questions.length}</span></div>
         <div class="card">
-          <div class="timerbar-track"><div class="timerbar-fill" style="width:${pct}%"></div></div>
+          <div class="timerbar-track"><div class="timerbar-fill" id="hostTimerFill" style="width:100%"></div></div>
           <div class="qicon">${q.icon}</div>
           <div class="qtext">${q.text}</div>
           ${q.options.map(o=>`<div class="opt dim">${o}</div>`).join('')}
-          <p class="muted center" style="margin-top:10px;">${answers.length} / ${rosterCount} teams answered · ${remaining.toFixed(0)}s left</p>
+          <p class="muted center" id="hostAnsweredTxt" style="margin-top:10px;">Checking answers…</p>
           <div class="row" style="margin-top:14px;"><button class="primary" id="btnSkip">Reveal Answer →</button></div>
         </div>
       `);
-      const skipBtn = document.getElementById('btnSkip');
-      if(skipBtn) skipBtn.onclick = doReveal;
+      document.getElementById('btnSkip').onclick = doReveal;
     }
-    startPoll(tick, 600);
+
+    function tickTimer(){
+      if(!meta || revealed) return;
+      const elapsed = (Date.now() - meta.startedAt)/1000;
+      const remaining = Math.max(0, QT - elapsed);
+      const pct = Math.max(0, (remaining/QT)*100);
+      const fill = document.getElementById('hostTimerFill');
+      if(fill) fill.style.width = pct + '%';
+    }
+
+    async function refreshCount(){
+      if(!meta || revealed) return;
+      const answers = await getAnswersFor(ctx.code, meta.pos);
+      if(revealed) return;
+      const roster = await fGet(rosterPath(ctx.code));
+      if(revealed) return;
+      const rosterCount = roster ? Object.keys(roster).length : 0;
+      const remaining = Math.max(0, QT - (Date.now()-meta.startedAt)/1000);
+      const txt = document.getElementById('hostAnsweredTxt');
+      if(txt) txt.textContent = `${answers.length} / ${rosterCount} teams answered · ${remaining.toFixed(0)}s left`;
+    }
+
+    (async ()=>{
+      const m = await fGet(metaPath(ctx.code));
+      if(!m) return;
+      meta = m;
+      const q = FLAT[meta.pos];
+      paint(q);
+      tickTimer();
+      timerId = setInterval(tickTimer, 100);
+      refreshCount();
+      countId = setInterval(refreshCount, 1500);
+    })();
   }
 
   async function renderHostReveal(pos){
@@ -490,28 +513,38 @@
       if(token !== pollToken) return;
       if(!meta) return;
       if(meta.phase === 'lobby'){
-        if(ctx.currentPhase !== 'lobby'){ ctx.currentPhase='lobby'; renderTeamWaiting(); }
+        if(ctx.currentPhase !== 'lobby'){ ctx.currentPhase='lobby'; stopQTimer(); renderTeamWaiting(); }
         return;
       }
       if(meta.phase === 'final'){
-        if(ctx.currentPhase !== 'final'){ ctx.currentPhase='final'; stopPoll(); renderFinalScreen(ctx.code); }
+        if(ctx.currentPhase !== 'final'){ ctx.currentPhase='final'; stopQTimer(); stopPoll(); renderFinalScreen(ctx.code); }
         return;
       }
-      if(meta.pos !== ctx.lastPos){ ctx.lastPos = meta.pos; ctx.hasAnswered = false; }
+      if(meta.pos !== ctx.lastPos){
+        ctx.lastPos = meta.pos;
+        ctx.hasAnswered = false;
+        ctx.mySelected = undefined; // clear last question's pick so it can't bleed into this one
+        ctx.questionPainted = false;
+      }
       if(meta.phase === 'question'){
-        ctx.currentPhase = 'question';
-        renderTeamQuestion(meta);
+        if(ctx.currentPhase !== 'question' || !ctx.questionPainted){
+          ctx.currentPhase = 'question';
+          ctx.questionPainted = true;
+          renderTeamQuestion(meta);
+        }
+        // already painted for this question — the local timer (below) keeps the bar moving, no need to re-render
       } else if(meta.phase === 'reveal' || meta.phase === 'scores'){
-        if(ctx.currentPhase !== meta.phase){ ctx.currentPhase = meta.phase; renderTeamFeedback(meta); }
+        if(ctx.currentPhase !== meta.phase){ ctx.currentPhase = meta.phase; stopQTimer(); renderTeamFeedback(meta); }
       }
     }, 900);
   }
 
+  let qTimerId = null;
+  function stopQTimer(){ if(qTimerId){ clearInterval(qTimerId); qTimerId=null; } }
+
   async function renderTeamQuestion(meta){
+    stopQTimer();
     const q = FLAT[meta.pos];
-    const elapsed = (Date.now()-meta.startedAt)/1000;
-    const remaining = Math.max(0, QT - elapsed);
-    const pct = Math.max(0, (remaining/QT)*100);
     const already = ctx.hasAnswered;
     const mySelected = ctx.mySelected;
 
@@ -519,34 +552,49 @@
       ${brand()}
       <div class="round-banner" style="background:${q.roundColor}"><span>${q.roundName}</span><span>Q${q.qIndex+1}</span></div>
       <div class="card">
-        <div class="timerbar-track"><div class="timerbar-fill" style="width:${pct}%"></div></div>
+        <div class="timerbar-track"><div class="timerbar-fill" id="teamTimerFill" style="width:100%"></div></div>
         <div class="qicon">${q.icon}</div>
         <div class="qtext">${q.text}</div>
-        <div id="opts">${q.options.map((o,i)=>`<button class="opt ${mySelected===i?'selected':''}" data-i="${i}" ${already||remaining<=0?'disabled':''}>${o}</button>`).join('')}</div>
+        <div id="opts">${q.options.map((o,i)=>`<button class="opt ${mySelected===i?'selected':''}" data-i="${i}" ${already?'disabled':''}>${o}</button>`).join('')}</div>
         <p class="muted center" id="statusMsg" style="margin-top:8px;">${already?"Answer locked in — waiting for reveal…":"Tap your answer!"}</p>
       </div>
     `);
-    if(!already && remaining>0){
+    if(!already){
       document.querySelectorAll('#opts .opt').forEach(btn=>{
         btn.onclick = async ()=>{
           if(ctx.hasAnswered) return;
           ctx.hasAnswered = true;
           ctx.mySelected = parseInt(btn.dataset.i,10);
+          const remainingNow = Math.max(0, QT - (Date.now()-meta.startedAt)/1000);
           const correct = ctx.mySelected === q.correct;
           const ts = Date.now();
           await fSet(answerPath(ctx.code, meta.pos, ctx.teamName), { name: ctx.teamName, choice: ctx.mySelected, ts, correct });
           if(correct){
             const t = await fGet(teamPath(ctx.code, ctx.teamName));
-            const gain = 10 + Math.round(5*(remaining/QT));
+            const gain = 10 + Math.round(5*(remainingNow/QT));
             await fSet(teamPath(ctx.code, ctx.teamName), { name: ctx.teamName, score: (t?t.score:0) + gain });
           }
           document.querySelectorAll('#opts .opt').forEach(b=>b.disabled=true);
           const sel = document.querySelector(`#opts .opt[data-i="${ctx.mySelected}"]`);
           if(sel) sel.classList.add('selected');
-          document.getElementById('statusMsg').textContent = 'Answer locked in — waiting for reveal…';
+          const msg = document.getElementById('statusMsg');
+          if(msg) msg.textContent = 'Answer locked in — waiting for reveal…';
+          stopQTimer();
         };
       });
     }
+
+    qTimerId = setInterval(()=>{
+      const elapsed = (Date.now()-meta.startedAt)/1000;
+      const remaining = Math.max(0, QT - elapsed);
+      const pct = Math.max(0, (remaining/QT)*100);
+      const fill = document.getElementById('teamTimerFill');
+      if(fill) fill.style.width = pct + '%';
+      if(remaining<=0){
+        document.querySelectorAll('#opts .opt').forEach(b=>b.disabled=true);
+        stopQTimer();
+      }
+    }, 100);
   }
 
   async function renderTeamFeedback(meta){
